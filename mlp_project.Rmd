@@ -1,0 +1,109 @@
+---
+title: "Practical Machine Learning. Final Project"
+output: html_document
+---
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset). 
+
+## 
+
+
+## Data & Goals
+
+The training data for this project are available here:
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The test data are available here:
+
+[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment. 
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. We will build a model to predict 20 cases.
+
+## Loading Libraries
+```{r}
+library(caret) 
+library(randomForest)
+library(rpart)
+library(rattle) # Decision Tree drawing
+```
+
+```{r}
+training_data = read.csv("pml-training.csv")
+testing_data  = read.csv("pml-testing.csv")
+
+dim(training_data)
+
+#summary(subset(training_data, select = grep("_arm", colnames(training_data))))
+levels(training_data$classe)
+```
+There are five classes in dataset, so it is a multiclassification problem.
+
+### Delete columns with NA:
+```{r}
+training_data = training_data[, colSums(is.na(testing_data)) == 0]
+testing_data  = testing_data[, colSums(is.na(testing_data)) == 0]
+colnames(training_data)
+```
+
+### Delete variables which not seems to be a good predictors:
+```{r, echo=FALSE}
+training_data = training_data[, -c(1:7)]
+testing_data  = testing_data[, -c(1:7)]
+```
+
+We could decompose our data through PCA.
+```{r}
+# Get only numeric variables:
+numeric = sapply(training_data, is.numeric)
+training_data_num = training_data[, numeric]
+
+# Imputting data:
+for(i in 1:ncol(training_data_num)){
+  training_data_num[is.na(training_data_num[,i]), i] <- median(training_data_num[,i], na.rm = TRUE)
+}
+train_pca = prcomp(training_data_num, center = TRUE, scale. = TRUE)
+plot(train_pca, type='l')
+plot((train_pca$sdev)^2 / sum(train_pca$sdev^2), xlim=c(0, 130))
+```
+It seems that ~70 components have enough explained variance. But there is no distinct bend and we have not large amount of data, so we just build our model with all data, and we could leave missing values because algorithms based on decision trees handle missings.
+
+### Split data into training and testing datasets for validation:
+```{r, echo=FALSE}
+part_ind           = createDataPartition(y = training_data$classe, p = 0.7, list = FALSE)
+sub_training_data  = training_data[part_ind,]
+sub_testing_data   = training_data[-part_ind,]
+```
+
+### Create predictive models: Random Forest Calssifier and Decision Tree. 
+```{r}
+# Random Forest
+mod_rf  = randomForest(classe ~. , data = sub_training_data, method = "class")
+pred_rf = predict(mod_rf, sub_testing_data, type = "class")
+res_rf  = confusionMatrix(pred_rf, sub_testing_data$classe)
+
+# Decision Tree
+mod_dt  = rpart(classe ~ ., data = sub_training_data, method = "class")
+pred_dt = predict(mod_dt, sub_testing_data, type = "class")
+res_dt  = confusionMatrix(pred_dt, sub_testing_data$classe)
+fancyRpartPlot(mod_dt, main='Decision Tree')
+res_dt$table
+res_rf$table
+```
+Decision Tree has many splits, but doesn't catch distinct differences between A/B, C/D, but predictions from Random Forest looks almost perfectly (see confusion matrixes).
+
+```{r, echo=FALSE}
+res_comp = data.frame(res_rf$overall, res_dt$overall)
+res_comp
+```
+As we see, the Random Forest classifier has advantages over the Decision Tree. So we will use superior model:
+
+### Final predictions for submitting:
+```{r, echo=FALSE}
+final_pred = predict(mod_rf, testing_data, type = "class")
+final_pred
+```
